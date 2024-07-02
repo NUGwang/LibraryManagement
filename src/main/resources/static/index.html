@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>图书借阅管理</title>
+    <script src="https://unpkg.com/vue@3"></script>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .btn-borrow {
+            background-color: white;
+            color: blue;
+        }
+        .btn-borrow:hover {
+            background-color: #004081;
+        }
+        .btn-return {
+            background-color: white;
+            color: red;
+        }
+        .btn-return:hover {
+            background-color: darkred;
+        }
+        .modal-wrapper {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            visibility: hidden;
+            opacity: 0;
+            transition: visibility 0s, opacity 0.3s ease;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+            width: 300px;
+        }
+        .modal-wrapper.active {
+            visibility: visible;
+            opacity: 1;
+        }
+        .modal-footer {
+            margin-top: 10px;
+            text-align: right;
+        }
+        .main-content{
+            width: 100%;
+            height: 100%;
+        }
+        .main{
+            width:260px;
+            height:260px;
+            float: left;
+            margin-left: 20px;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h3>图书借阅管理</h3>
+        <button @click="showModal">借阅图书</button>
+        <br><br>
+        <div>
+            <label>
+                <input type="radio" v-model="borrowStatus" value="借出"> 借出
+            </label>
+            <label>
+                <input type="radio" v-model="borrowStatus" value="归还"> 归还
+            </label>
+            <button @click="fetchRecordsByBorrowStatus">查询</button>
+        </div>
+
+            <div style="float:left;">
+                <input type="text" id="s_bookName" v-model="searchBookName" placeholder="输入图书名查询">
+                <button @click="fetchRecordsByBookName">查询</button>
+            </div>
+
+            <div style="float:left;">
+                <input type="text" v-model="searchBookId" placeholder="输入图书ID查询">
+                <button @click="searchBook">查询</button>
+            </div>
+
+            <div  style="float:left;">
+                <input type="text" v-model="borrowerName" placeholder="输入借阅人姓名">
+                <button @click="searchByBorrower">查询</button>
+            </div>
+
+
+        <table>
+            <thead>
+            <tr>
+                <th>图书ID</th>
+                <th>图书名称</th>
+                <th>借阅时间</th>
+                <th>归还时间</th>
+                <th>借阅人</th>
+                <th>借阅状态</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr v-for="record in records" :key="record.id">
+                <td>{{ record.id }}</td>
+                <td>{{ record.bookName }}</td>
+                <td>{{ record.borrowData }}</td>
+                <td>{{ record.returnData }}</td>
+                <td>{{ record.borrower }}</td>
+                <td>{{ record.borrowStatus }}</td>
+                <td>
+                    <button @click="returnBook(record.id)" v-if="record.borrowStatus === '借出'" class="btn-return">归还</button>
+                    <button @click="showModal2('borrow', record.id, record.bookName)" v-if="record.borrowStatus === '归还'" class="btn-borrow">借阅</button>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+
+        <div class="modal-wrapper" :class="{ active: isModalActive }">
+            <div class="modal-content">
+                <h3>借阅图书</h3>
+                <form @submit.prevent="borrowBook">
+                    <label for="bookId">图书ID:</label>
+                    <input type="text" id="bookId" v-model="borrowBookForm.bookId" required>
+                    <br><br>
+                    <label for="bookname">图书名:</label>
+                    <input type="text" id="bookname" v-model="borrowBookForm.bookname" required>
+                    <br><br>
+                    <label for="borrower">借阅人:</label>
+                    <input type="text" id="borrower" v-model="borrowBookForm.borrower" required>
+                    <div class="modal-footer">
+                        <button type="submit">确认借阅</button>
+                        <button type="button" @click="closeModal">取消</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const app = Vue.createApp({
+        data() {
+            return {
+                records: [],
+                borrowBookForm: {
+                    bookId: '',
+                    bookname: '',
+                    borrower: ''
+                },
+                searchBookId: '',
+                isModalActive: false,
+                borrowerName: '',
+                searchBookName: '' ,// 用户输入的图书名
+                borrowStatus: '' // 用户选择的借阅状态
+            };
+        },
+        methods: {
+            refresh() {
+                location.reload();
+            },
+            async fetchRecords() {
+                try {
+                    const response = await fetch('/records');
+                    const data = await response.json();
+                    this.records = data;
+                } catch (error) {
+                    console.error('获取记录错误:', error);
+                    alert('获取记录失败，请稍后再试。');
+                }
+            },
+            //还书
+            async returnBook(bookId) {
+                try {
+                    const response = await fetch(`/records/return/${bookId}`, {
+                        method: 'POST'
+                    });
+
+                    console.log('Response status:', response.status); // 添加日志查看响应状态
+
+                    if (!response.ok) {
+                        throw new Error('网络响应不正常');
+                    }
+
+                    const data = await response.json();
+
+                    console.log('Response data:', data); // 添加日志查看响应数据
+
+                    if (data.success) {
+                        alert('成功归还图书。');
+                        await this.fetchRecords();
+                    } else {
+                        alert(data.message || '归还图书失败，请重试。');
+                    }
+                } catch (error) {
+                    console.error('归还图书错误:', error);
+                    alert('归还图书失败，请稍后再试。');
+                }
+                this.refresh()
+            },
+            //借书
+            async borrowBook() {
+                try {
+                    const { bookId, bookname, borrower } = this.borrowBookForm;
+                    if (!bookId || !borrower || !bookname) {
+                        alert('请输入有效的图书ID、图书名和借阅人姓名！');
+                        return;
+                    }
+                    const response = await fetch(`/records/borrow/${bookId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            bookName: bookname,
+                            borrower: borrower
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        alert(data.message); // 显示成功信息
+                        await this.fetchRecords(); // 刷新记录列表
+                        this.closeModal();
+                    } else {
+                        alert(data.message); // 显示失败信息
+                    }
+                } catch (error) {
+                    console.error('借阅图书错误:', error);
+                    alert('借阅图书失败，请稍后再试。');
+                }
+                this.refresh();
+            },
+            //借阅人查询
+            async searchByBorrower() {
+                try {
+                    const response = await fetch(`/records/borrower/${this.borrowerName}`);
+                    const data = await response.json();
+                    this.records = data;
+                } catch (error) {
+                    console.error('查询借阅人记录错误:', error);
+                    alert('查询借阅人记录失败，请稍后再试。');
+                }
+                this.borrowerName = '';
+            },
+            //借阅状态查询
+            async fetchRecordsByBorrowStatus() {
+                try {
+                    const response = await fetch(`/records/borrowStatus/${this.borrowStatus}`);
+                    const data = await response.json();
+                    this.records = data; // 更新记录数组，展示选择状态下的记录
+                } catch (error) {
+                    console.error('获取记录时出错:', error);
+                    alert('获取记录失败，请稍后再试。');
+                }
+                this.borrowStatus = '';
+            },
+
+            //最新借阅时间查询
+            async fetchLatestRecords() {
+                try {
+                    const response = await fetch('/records/latest');
+                    const data = await response.json();
+                    if (data.success) {
+                        this.records = data.data;
+                    } else {
+                        alert(data.message);
+                    }
+                } catch (error) {
+                    console.error('获取最新借阅记录错误:', error);
+                    alert('获取最新借阅记录失败，请稍后再试。');
+                }
+            },
+            //图书名找书
+            async fetchRecordsByBookName() {
+                try {
+                    const response = await fetch(`/records/bookName/${this.searchBookName}`);
+                    const data = await response.json();
+                    this.records = data; // 更新记录数组，展示查询结果
+                } catch (error) {
+                    console.error('获取记录时出错:', error);
+                    alert('获取记录失败，请稍后再试。');
+                }
+                this.searchBookName = '';
+            },
+            //通过id找书
+            async searchBook() {
+                if (!this.searchBookId) {
+                    await this.fetchRecords();
+                    return;
+                }
+                try {
+                    const response = await fetch(`/records/${this.searchBookId}`);
+                    const data = await response.json();
+                    console.log(1111);
+                    if (data.success) {
+                        console.log("成功");
+                        this.records = [data.data];
+                    } else {
+                        console.log("失败");
+                        alert(data.message); // 显示未找到图书记录
+                    }
+                } catch (error) {
+                    console.error('查询图书记录错误:', error);
+                    alert('查询图书记录失败，请稍后再试。');
+                    this.closeModal();
+                }
+                this.searchBookId='';
+            },
+
+            showModal() {
+                this.isModalActive = true;
+            },
+            showModal2(action, bookId, bookname) {
+                this.isModalActive = true;
+                if (action === 'borrow') {
+                    this.borrowBookForm.bookId = bookId;
+                    this.borrowBookForm.bookname = bookname;
+                }
+            },
+            closeModal() {
+                this.isModalActive = false;
+                this.resetForm();
+            },
+            resetForm() {
+                this.borrowBookForm.bookId = '';
+                this.borrowBookForm.bookname = '';
+                this.borrowBookForm.borrower = '';
+            },
+            async checkLoginStatus() {
+                try {
+                    const response = await fetch('/auth/check');
+                    const data = await response.json();
+                    if (data.message !== "Authenticated") {
+                        window.location.href = "login.html"; // Redirect to login page if not authenticated
+                    }
+                } catch (error) {
+                    console.error('检查登录状态错误:', error);
+                    window.location.href = "login.html"; // Redirect to login page on error
+                }
+            }
+        },
+        mounted() {
+            this.checkLoginStatus();
+            this.fetchRecords();
+        }
+    });
+
+    app.mount('#app');
+</script>
+</body>
+</html>
